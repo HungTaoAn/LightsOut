@@ -20,23 +20,28 @@ public class LightsOutService {
     public static void main(String[] args) {
         LightsOutService lightsOutService = new LightsOutService();
         String path = "/Users/DanHung/Desktop/2022履歷/blueRock/samples/" +
-                "01" +
+                "06" +
                 ".txt";
         lightsOutService.doLightsOut(path);
     }
 
     private int xCount = 0;
-    private LightDto board = null;
+    private LightDto boardLightDto = null;
     private int depth = -1;
     private List<List<LightDto>> puzzles = new ArrayList<>();
     private List<List<LightDto>> deductedPuzzles = new ArrayList<>();
-    private List<List<Integer>> possiblePermutations = new ArrayList<>();
-    private final int bucketSize = 10 * 1000;
+    private List<List<Integer>> publicPossibleCombinations = new ArrayList<>();
 
     private int boardColumnsLength;
     private int boardRowsLength;
     private int arrayLength;
-    long startTime, endTime;
+    private long startTime;
+
+    private final int BUCKET_SIZE = 10 * 1000;
+    private final String SPACE_STRING = " ";
+    private final String COMMA_STRING = ",";
+    private final char X_CHAR = 'X';
+
 
     private void doLightsOut(String filePath) {
         startTime = System.currentTimeMillis();
@@ -46,37 +51,63 @@ public class LightsOutService {
         String depthStr = txtArr[0];
         String boardStr = txtArr[1];
         String input = txtArr[2];
-        String board = "board";
+        String boardString = "board";
 
         depth = Integer.parseInt(depthStr);
+        // calculate the square length of board
         calculateSquareLength(boardStr);
+        // trans board string to intArray
         int[] result = transStringToIntArray(boardStr);
-        this.board = new LightDto(board, board, result);
-        String[] inputRows = input.split(" ");
+        boardLightDto = new LightDto(boardString, boardString, result);
+        String[] inputRows = input.split(SPACE_STRING);
 
+        // Each "puzzle" means each "pieces"
+        //      Here it trans the rowString(e.g. "XX,XX,XX") to LightDtos, then put them in a puzzle list
         puzzles = interpretPuzzles(inputRows);
+
+        // Here we cut off some puzzles with most combinations so that we could deduct the calculating numbers
+        //    We will add these deductedPuzzles back later
         deductPuzzles();
+        // calculate the "X" numbers in deductedPuzzles
         calculateXCount();
 
+        // Get sizes of puzzles so later we could use it to generate combinations
         List<List<Integer>> puzzleSizes = getPuzzleSizes(puzzles);
 
-        List<List<Integer>> buckets = new ArrayList<>();
+        // Recursively generate combinations
+        List<List<Integer>> publicBuckets = new ArrayList<>();
         Map<Integer, Integer> combinations = new HashMap<>();
-        buckets = recGetNumbers(puzzleSizes, buckets, combinations, 0, puzzleSizes.size());
+        publicBuckets = recGetCombinations(puzzleSizes, publicBuckets, combinations, 0);
 
-        if (!ObjectUtils.isEmpty(buckets)) {
-            System.out.println("dump buckets");
-            filterPossiblePermutations(buckets);
+        // dump publicBuckets: there might be some combinations left in the buckets
+        if (!ObjectUtils.isEmpty(publicBuckets)) {
+            // Filter out those combinations which contain different number of xCount
+            //      By doing this we could reduce the numbers of calculating
+            filterPossibleCombinations(publicBuckets);
         }
 
+        // add back puzzles deducted in the beginning
         addDeductedPuzzles();
-        List<LightDto> resultLightDtos = findLights(possiblePermutations);
+        // match all the puzzle combinations
+        List<LightDto> resultLightDtos = findLights(publicPossibleCombinations);
         printResult(resultLightDtos, inputRows);
+        printSpentTime();
 
-        endTime = System.currentTimeMillis();
-        System.out.println("spend:" + (endTime - startTime) / 1000 + " seconds");
     }
 
+    private void printSpentTime() {
+        long spendTime = System.currentTimeMillis() - startTime;
+        if (spendTime < 1000) {
+            System.out.println("spent:" + spendTime + " milliseconds");
+        } else {
+            System.out.println("spent:" + (spendTime) / 1000 + " seconds");
+        }
+    }
+
+    /**
+     * @param filePath the path where sample questions locate
+     * @return String array contents
+     */
     public String[] readTxtFile(String filePath) {
         String[] strArr = new String[3];
         try {
@@ -103,17 +134,16 @@ public class LightsOutService {
     }
 
     private void calculateSquareLength(String boardStr) {
-        String[] columns = boardStr.split(",");
+        String[] columns = boardStr.split(COMMA_STRING);
         boardRowsLength = columns.length;
         boardColumnsLength = columns[0].length();
 
-        String remove = StringUtils.delete(boardStr, ",");
-        arrayLength = remove.length();
+        String boardStringWithoutComma = StringUtils.delete(boardStr, COMMA_STRING);
+        arrayLength = boardStringWithoutComma.length();
     }
 
     private int[] transStringToIntArray(String boardStr) {
-        String remove = StringUtils.delete(boardStr, ",");
-        //boardStringToIntArray
+        String remove = StringUtils.delete(boardStr, COMMA_STRING);
         int[] result = new int[remove.length()];
         for (int i = 0; i < remove.length(); i++) {
             result[i] = Character.getNumericValue(remove.charAt(i));
@@ -121,18 +151,21 @@ public class LightsOutService {
         return result;
     }
 
+    /**
+     * Each "puzzle" means each "pieces."
+     *      Here it trans the rowString(e.g. "XX,XX,XX") to LightDtos, then put them in a puzzle list
+     */
     private List<List<LightDto>> interpretPuzzles(String[] rows) {
         List<List<LightDto>> puzzles = new ArrayList<>();
         for (String rowString : rows) {
-            // XX,XX,XX
-            String[] columns = rowString.split(",");
+            String[] columns = rowString.split(COMMA_STRING);
             int columnsLength = columns[0].length();
             int rowsLength = columns.length;
             List<LightDto> onePuzzleLightDtos = interpretOnePuzzle(rowString, columnsLength, rowsLength);
             puzzles.add(onePuzzleLightDtos);
         }
 
-        // todo: remove this print for debugging
+        /* print for debugging
         puzzles.forEach(puzzle -> {
             for (LightDto lightDto : puzzle) {
                 System.out.print(lightDto.getPuzzleName() + "-" + lightDto.getCoordinates() + ":");
@@ -140,18 +173,18 @@ public class LightsOutService {
             }
             System.out.println("==============");
         });
+        */
 
         return puzzles;
     }
 
     private List<LightDto> interpretOnePuzzle(String rowString, int columnLength, int rowLength) {
-        // input = XX
         List<LightDto> lightDtos = new ArrayList<>();
-        // List<int[]> arrayList = new ArrayList<>();
         // 1. addRight
         int rightAddTimes = boardColumnsLength - columnLength;
         int[] rowFirstArray = addRight(rowString, rightAddTimes);
-        LightDto lightDto = new LightDto(rowString, "00", rowFirstArray);
+        String doubleZeroString = "00";
+        LightDto lightDto = new LightDto(rowString, doubleZeroString, rowFirstArray);
         lightDtos.add(lightDto);
 
         // 2. addLeft. Move this piece to right spot, this means add one zero on left side each time
@@ -174,13 +207,13 @@ public class LightsOutService {
 
     private int[] addRight(String input, int addNumber) {
         //    XX,XX,XX --> XX0,XX0,XX0 --> 110,110,110
-        String[] rows = input.split(",");
+        String[] rows = input.split(COMMA_STRING);
         int[] array = new int[arrayLength];
         int count = 0;
         for (String row : rows) {
             for (int i = 0; i < row.length() + addNumber; i++) {
                 if (i < row.length()) {
-                    if (row.charAt(i) == 'X') {
+                    if (row.charAt(i) == X_CHAR) {
                         array[count] = 1;
                     }
                 } else {
@@ -193,7 +226,7 @@ public class LightsOutService {
     }
 
     /**
-     * @param lightDto
+     * @param lightDto dto that contains puzzleName, coordinates and intArray
      * @param input    add input to the left of this arrays
      * @return [110110000], "00"
      * [001101100]
@@ -230,7 +263,6 @@ public class LightsOutService {
             yInt += addNumber;
             sb.append(xCoordinates).append(yInt);
         }
-        sb.insert(1, ",");
         return sb.toString();
     }
 
@@ -251,8 +283,11 @@ public class LightsOutService {
         return newList;
     }
 
+    /**
+     * Find puzzles with most combinations and deduct them from puzzles
+     */
     private void deductPuzzles() {
-        // 1. find the puzzle with most permutations
+        // 1. find the puzzle with most combinations
         // puzzleQueue: [index, List<LightDto> ]
         PriorityQueue<Object[]> puzzleQueue = new PriorityQueue<>((pair1, pair2) ->
                 ((List<LightDto>) pair2[1]).size() - ((List<LightDto>) pair1[1]).size());
@@ -261,6 +296,7 @@ public class LightsOutService {
             puzzleQueue.add(new Object[]{i, puzzles.get(i)});
         }
 
+        // 2. add removeIndexes and put puzzle into deductedPuzzles
         List<Integer> removeIndexes = new ArrayList<>();
         int count = depth - 1;
         while (count-- > 0) {
@@ -270,6 +306,7 @@ public class LightsOutService {
             List<LightDto> puzzle = (List<LightDto>) poll[1];
             deductedPuzzles.add(puzzle);
         }
+        // 3. remove puzzle from puzzles
         List<List<LightDto>> tempPuzzles = new ArrayList<>();
         for (int i = puzzles.size() - 1; i >= 0; i--) {
             if (!removeIndexes.contains(i)) {
@@ -279,17 +316,25 @@ public class LightsOutService {
         puzzles = tempPuzzles;
     }
 
+    /**
+     * Calculate the "X" numbers in deductedPuzzles
+     */
     private void calculateXCount() {
         for (List<LightDto> deductedPuzzle : deductedPuzzles) {
             String puzzleName = deductedPuzzle.get(0).getPuzzleName();
             for (int i = 0; i < puzzleName.length(); i++) {
-                if (puzzleName.charAt(i) == 'X') {
+                if (puzzleName.charAt(i) == X_CHAR) {
                     xCount++;
                 }
             }
         }
     }
 
+    /**
+     * Get a list of sizes of puzzles.
+     * e.g. {{0}, {0,1}, {0,1,2,3}, {0,1,2,3,4,5}}
+     * This is for later generating the combinations
+     */
     private List<List<Integer>> getPuzzleSizes(List<List<LightDto>> puzzles) {
         List<List<Integer>> puzzleSizes = new ArrayList<>();
         for (List<LightDto> puzzle : puzzles) {
@@ -303,20 +348,23 @@ public class LightsOutService {
         return puzzleSizes;
     }
 
-    private List<List<Integer>> recGetNumbers(List<List<Integer>> list, List<List<Integer>> buckets, Map<Integer, Integer> combinations, int index, int listSize) {
-        List<Integer> integers = list.get(index);
-        if (index == listSize - 1) {
+    /**
+     * Recursively generate combinations
+     */
+    private List<List<Integer>> recGetCombinations(List<List<Integer>> puzzleSizes, List<List<Integer>> publicBuckets, Map<Integer, Integer> combinations, int index) {
+        List<Integer> integers = puzzleSizes.get(index);
+        if (index == puzzleSizes.size() - 1) {
             // last integers
             Map<Integer, Integer> tempCombinations = new HashMap<>(combinations);
             for (Integer integer : integers) {
 
                 tempCombinations.put(index, integer);
-                buckets.add(new ArrayList<>(tempCombinations.values()));
+                publicBuckets.add(new ArrayList<>(tempCombinations.values()));
 
                 // set a maximum size
-                if (buckets.size() > bucketSize) {
-                    filterPossiblePermutations(buckets);
-                    buckets = new ArrayList<>();
+                if (publicBuckets.size() > BUCKET_SIZE) {
+                    filterPossibleCombinations(publicBuckets);
+                    publicBuckets = new ArrayList<>();
                 }
             }
         } else {
@@ -325,32 +373,36 @@ public class LightsOutService {
                 combinations.put(index, integer);
 
                 // call rec
-                buckets = recGetNumbers(list, buckets, combinations, index + 1, listSize);
+                publicBuckets = recGetCombinations(puzzleSizes, publicBuckets, combinations, index + 1);
 
             }
             combinations.remove(index);
         }
-        return buckets;
+        return publicBuckets;
     }
 
-    private void filterPossiblePermutations(List<List<Integer>> intPermutations) {
-        for (List<Integer> permutation : intPermutations) {
-            int[] ints = getLightDtoInts(permutation);
+    /**
+     * Filter out those combinations contain different number of xCount
+     *      Through this we could deduct the combinations
+     */
+    private void filterPossibleCombinations(List<List<Integer>> combinations) {
+        for (List<Integer> combination : combinations) {
+            int[] ints = getLightDtoInts(combination);
 
             if (isPuzzleMatched(ints, depth)) {
-                possiblePermutations.add(permutation);
+                publicPossibleCombinations.add(combination);
             }
         }
     }
 
-    private int[] getLightDtoInts(List<Integer> permutation) {
+    private int[] getLightDtoInts(List<Integer> combination) {
         List<LightDto> lightDtos = new ArrayList<>();
-        for (int i = 0; i < permutation.size(); i++) {
-            int currentInt = permutation.get(i);
+        for (int i = 0; i < combination.size(); i++) {
+            int currentInt = combination.get(i);
             LightDto lightDto = puzzles.get(i).get(currentInt);
             lightDtos.add(lightDto);
         }
-        lightDtos.add(board);
+        lightDtos.add(boardLightDto);
         return addAllArrays(lightDtos);
     }
 
@@ -372,6 +424,9 @@ public class LightsOutService {
         return result;
     }
 
+    /**
+     * Check if the array contains the same number of xCount
+     */
     private boolean isPuzzleMatched(int[] array, int depth) {
         int count = 0;
         for (int i : array) {
@@ -387,33 +442,33 @@ public class LightsOutService {
         for (List<LightDto> deductedPuzzle : deductedPuzzles) {
             List<Integer> deductedPuzzleSizes = getPuzzleSizes(
                     new ArrayList<>(Collections.singletonList(deductedPuzzle))).get(0);
-            possiblePermutations = genCombinedPermutations(possiblePermutations, deductedPuzzleSizes);
+            publicPossibleCombinations = genCombinedCombinations(publicPossibleCombinations, deductedPuzzleSizes);
             puzzles.add(deductedPuzzle);
         }
     }
 
-    private List<List<Integer>> genCombinedPermutations(List<List<Integer>> permutations, List<Integer> deductedPuzzleSizes) {
-        List<List<Integer>> combinedPermutations = new ArrayList<>();
+    private List<List<Integer>> genCombinedCombinations(List<List<Integer>> combinations, List<Integer> deductedPuzzleSizes) {
+        List<List<Integer>> combinedCombinations = new ArrayList<>();
         for (Integer integer : deductedPuzzleSizes) {
             List<Integer> tempNumbers;
-            for (List<Integer> numbers : permutations) {
+            for (List<Integer> numbers : combinations) {
                 tempNumbers = new ArrayList<>(numbers);
                 tempNumbers.add(integer);
-                combinedPermutations.add(tempNumbers);
+                combinedCombinations.add(tempNumbers);
             }
         }
-        return combinedPermutations;
+        return combinedCombinations;
     }
 
-    private List<LightDto> findLights(List<List<Integer>> intPermutations) {
-        for (List<Integer> permutation : intPermutations) {
+    private List<LightDto> findLights(List<List<Integer>> combinations) {
+        for (List<Integer> combination : combinations) {
             List<LightDto> lightDtos = new ArrayList<>();
-            for (int i = 0; i < permutation.size(); i++) {
-                int currentInt = permutation.get(i);
+            for (int i = 0; i < combination.size(); i++) {
+                int currentInt = combination.get(i);
                 LightDto lightDto = puzzles.get(i).get(currentInt);
                 lightDtos.add(lightDto);
             }
-            lightDtos.add(board);
+            lightDtos.add(boardLightDto);
             int[] intArr = addAllArrays(lightDtos);
 
             if (isAllZero(intArr, depth)) {
@@ -424,6 +479,11 @@ public class LightsOutService {
     }
 
     private void printResult(List<LightDto> lightDtos, String[] inputRows ) {
+        if (ObjectUtils.isEmpty(lightDtos)) {
+            System.out.println("Cannot find results");
+            return;
+        }
+
         Map<String, LightDto> lightDtoMap = lightDtos.stream()
                 .collect(HashMap::new, (map, lightDto) -> map.put(
                         lightDto.getPuzzleName(),
@@ -432,22 +492,25 @@ public class LightsOutService {
         StringBuilder sb = new StringBuilder();
         for (String inputRow : inputRows) {
             String coordinates = lightDtoMap.get(inputRow).getCoordinates();
-            sb.append(coordinates);
-            sb.append(" ");
+            sb.append(coordinates.charAt(0))
+                    .append(COMMA_STRING)
+                    .append(coordinates.charAt(1))
+                    .append(SPACE_STRING);
         }
-        sb.deleteCharAt(sb.lastIndexOf(" "));
-        String resultString = sb.toString();
-        resultString = resultString.replace("00", "0,0");
-        System.out.println(resultString);
+        sb.deleteCharAt(sb.lastIndexOf(SPACE_STRING));
+        System.out.println(sb.toString());
 
-        // For debugging
+        /* print for debugging
         System.out.println("#### Found it!! #####");
         for (LightDto lightDto : lightDtos) {
-            if (board.equals(lightDto.getPuzzleName())) {
+            if (boardLightDto.equals(lightDto.getPuzzleName())) {
                 continue;
             }
             System.out.println(lightDto.getPuzzleName() + ":" + lightDto.getCoordinates());
         }
+
+         */
+
     }
 
     private boolean isAllZero(int[] array, int depth) {
