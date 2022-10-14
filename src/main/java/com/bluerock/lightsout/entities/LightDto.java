@@ -16,7 +16,7 @@ import lombok.Setter;
 @AllArgsConstructor
 @NoArgsConstructor
 public class LightDto {
-    String puzzleName;
+    String pieceName;
     String coordinates;
     int[] intArray;
 }
