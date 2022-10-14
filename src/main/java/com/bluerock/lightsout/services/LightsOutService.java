@@ -20,7 +20,7 @@ public class LightsOutService {
     public static void main(String[] args) {
         LightsOutService lightsOutService = new LightsOutService();
         String path = "/Users/DanHung/Desktop/2022履歷/blueRock/samples/" +
-                "04" +
+                "01" +
                 ".txt";
         lightsOutService.doLightsOut(path);
     }
@@ -38,7 +38,6 @@ public class LightsOutService {
     private int arrayLength;
     long startTime, endTime;
 
-
     private void doLightsOut(String filePath) {
         startTime = System.currentTimeMillis();
 
@@ -53,8 +52,9 @@ public class LightsOutService {
         calculateSquareLength(boardStr);
         int[] result = transStringToIntArray(boardStr);
         this.board = new LightDto(board, board, result);
+        String[] inputRows = input.split(" ");
 
-        puzzles = interpretPuzzles(input);
+        puzzles = interpretPuzzles(inputRows);
         deductPuzzles();
         calculateXCount();
 
@@ -70,8 +70,11 @@ public class LightsOutService {
         }
 
         addDeductedPuzzles();
-        findLights(possiblePermutations);
+        List<LightDto> resultLightDtos = findLights(possiblePermutations);
+        printResult(resultLightDtos, inputRows);
 
+        endTime = System.currentTimeMillis();
+        System.out.println("spend:" + (endTime - startTime) / 1000 + " seconds");
     }
 
     public String[] readTxtFile(String filePath) {
@@ -118,8 +121,7 @@ public class LightsOutService {
         return result;
     }
 
-    private List<List<LightDto>> interpretPuzzles(String input) {
-        String[] rows = input.split(" ");
+    private List<List<LightDto>> interpretPuzzles(String[] rows) {
         List<List<LightDto>> puzzles = new ArrayList<>();
         for (String rowString : rows) {
             // XX,XX,XX
@@ -130,7 +132,7 @@ public class LightsOutService {
             puzzles.add(onePuzzleLightDtos);
         }
 
-        // todo: remove this print
+        // todo: remove this print for debugging
         puzzles.forEach(puzzle -> {
             for (LightDto lightDto : puzzle) {
                 System.out.print(lightDto.getPuzzleName() + "-" + lightDto.getCoordinates() + ":");
@@ -228,6 +230,7 @@ public class LightsOutService {
             yInt += addNumber;
             sb.append(xCoordinates).append(yInt);
         }
+        sb.insert(1, ",");
         return sb.toString();
     }
 
@@ -249,8 +252,8 @@ public class LightsOutService {
     }
 
     private void deductPuzzles() {
-        // 1. find the puzzle with most opportunities
-        // [index, List<LightDto> ]
+        // 1. find the puzzle with most permutations
+        // puzzleQueue: [index, List<LightDto> ]
         PriorityQueue<Object[]> puzzleQueue = new PriorityQueue<>((pair1, pair2) ->
                 ((List<LightDto>) pair2[1]).size() - ((List<LightDto>) pair1[1]).size());
 
@@ -402,9 +405,7 @@ public class LightsOutService {
         return combinedPermutations;
     }
 
-    private boolean findLights(List<List<Integer>> intPermutations) {
-        // List<List<Integer>> intPermutations = getIntPermutations(puzzles);
-
+    private List<LightDto> findLights(List<List<Integer>> intPermutations) {
         for (List<Integer> permutation : intPermutations) {
             List<LightDto> lightDtos = new ArrayList<>();
             for (int i = 0; i < permutation.size(); i++) {
@@ -416,20 +417,37 @@ public class LightsOutService {
             int[] intArr = addAllArrays(lightDtos);
 
             if (isAllZero(intArr, depth)) {
-                System.out.println("#### Found it!! #####");
-                // System.out.println(Arrays.toString(intArr));
-                for (LightDto lightDto : lightDtos) {
-                    if (board.equals(lightDto.getPuzzleName())) {
-                        continue;
-                    }
-                    System.out.println(lightDto.getPuzzleName() + ":" + lightDto.getCoordinates());
-                }
-                endTime = System.currentTimeMillis();
-                System.out.println("spend:" + (endTime - startTime) / 1000 + " seconds");
-                return true;
+                return lightDtos;
             }
         }
-        return false;
+        return null;
+    }
+
+    private void printResult(List<LightDto> lightDtos, String[] inputRows ) {
+        Map<String, LightDto> lightDtoMap = lightDtos.stream()
+                .collect(HashMap::new, (map, lightDto) -> map.put(
+                        lightDto.getPuzzleName(),
+                        lightDto
+                ), HashMap::putAll);
+        StringBuilder sb = new StringBuilder();
+        for (String inputRow : inputRows) {
+            String coordinates = lightDtoMap.get(inputRow).getCoordinates();
+            sb.append(coordinates);
+            sb.append(" ");
+        }
+        sb.deleteCharAt(sb.lastIndexOf(" "));
+        String resultString = sb.toString();
+        resultString = resultString.replace("00", "0,0");
+        System.out.println(resultString);
+
+        // For debugging
+        System.out.println("#### Found it!! #####");
+        for (LightDto lightDto : lightDtos) {
+            if (board.equals(lightDto.getPuzzleName())) {
+                continue;
+            }
+            System.out.println(lightDto.getPuzzleName() + ":" + lightDto.getCoordinates());
+        }
     }
 
     private boolean isAllZero(int[] array, int depth) {
